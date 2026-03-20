@@ -85,6 +85,20 @@ Stage1 由“主编排器 + 多 worker + 单类 subagent”组成：
 - 进度查询：`/java-stage1-status-checker`（只读 DB）
 - DB 初始化/迁移/函数安装：参考 [POSTGRES\_MCP\_PLAYBOOK.md](./java-stage1-audit-skill-cluster/skills/java-stage1-coverage-orchestrator/references/POSTGRES_MCP_PLAYBOOK.md)
 
+
+**效果演示**
+
+![stage1 claude code运行演示](assets/3fa6d0dd3e1fdc617e4341173f63f4c8.png)
+
+![stage1 数据库写入示例](assets/image.png)
+
+## 最佳实践
+- 可以先剔除第三方组件的jar，只对项目代码做审计。
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request 来完善项目功能。
+
 ## Roadmap
 
 - [] 优化 sink/route/auth 规则

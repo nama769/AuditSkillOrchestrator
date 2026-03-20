@@ -4,3 +4,5 @@
 !java-stage1-audit-skill-cluster/**
 !LICENSE
 !NOTICE
+!assets
+!assets/**
