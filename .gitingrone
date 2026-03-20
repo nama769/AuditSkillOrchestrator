@@ -1,0 +1,6 @@
+*
+!.gitingrone
+!java-stage1-audit-skill-cluster/
+!java-stage1-audit-skill-cluster/**
+!LICENSE
+!NOTICE
