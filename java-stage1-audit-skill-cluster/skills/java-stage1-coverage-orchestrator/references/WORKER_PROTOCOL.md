@@ -19,29 +19,34 @@ title: Stage1 Worker 协作协议
 ## Worker 禁止行为（本架构关键约束）
 
 worker 只能分析“主编排器明确让你看的内容”：
-- 允许：对本页 class 清单逐类调用 subagent；由 subagent 先枚举 methods/fields，再按需 `get_method_by_name` 获取少量方法源码做判断
+- 允许：把本页类列表交给 3 个维度 subagent；每个 subagent 只负责一个维度，并先枚举 methods/fields，再按需 `get_method_by_name` 获取少量方法源码做判断
 - 禁止：对项目做关键字搜索、全局 grep、按规则扫描未分配的类、向外扩展分析范围
 
 你只对“被分配到的类及其按需拉取的局部方法源码内容”做判定并输出证据即可。
 
-## Worker 必须使用 subagent 对单类做三维审计（强制）
+## Worker 必须使用 3 个维度 subagent（强制）
 
-对每一个 class：
-- worker 必须创建一个 subagent
-- subagent 必须使用技能 `/java-stage1-class-auditor`
-- subagent 输入仅包含该 class 的 `class_name/page_no`
-- subagent 输出必须一次性包含 `code_context_level` 与 `sinks/routes/auth_markers/errors`
+worker 必须只创建以下 3 个 subagent：
+- route subagent：只使用技能 `/java-stage1-route-extractor`
+- auth subagent：只使用技能 `/java-stage1-auth-marker`
+- sink subagent：只使用技能 `/java-stage1-sink-extractor`
 
-worker 自己不得直接分析 class（避免遗漏与上下文污染）。
+3 个 subagent 都处理同一份 `class_names[]`，并按类返回结果：
+- 先看类名、方法名、字段名/类型
+- 仅在当前维度可能相关时按需 `get_method_by_name`
+- 对每个 class 返回 `code_context_level/records/errors`
+
+worker 自己不得直接做 route/auth/sink 识别，也不得回退到 `/java-stage1-class-auditor` 的逐类聚合路径。
 
 并发限制（强制）：
-- worker 最多同时运行 2 个 subagent
-- 禁止一次性启动大量 subagent 再等待；必须小并发、及时回收、收到结果立即落库并标记 done
+- worker 必须只运行这 3 个 subagent
+- 禁止按 class 批量发射大量 subagent
+- 禁止在维度 subagent 内继续派生新的审计 subagent
 
 ## Worker 必须写入数据库（强制）
 
 所有状态与记录必须通过 Postgres MCP `execute_sql` 写入：
-- `stage1_classes`：本页 class 清单 + 每个 class 的完成标记
+- `stage1_classes`：本页类列表与每个 class 的完成标记
 - `stage1_sinks` / `stage1_routes` / `stage1_auth_markers`：逐条 findings
 - `stage1_warnings`：告警/异常/不合格记录原因
 - `stage1_pages`：更新 expected/done/计数与最终 status
@@ -50,6 +55,8 @@ worker 自己不得直接分析 class（避免遗漏与上下文污染）。
 
 完成数必须以 DB 为准，并满足：
 - `stage1_pages.done_class_count == stage1_pages.expected_class_count`
+
+类级 done 标记必须在该类的 route/auth/sink 三路结果全部汇总后再写入。
 
 不满足时必须：
 1) 在 `stage1_warnings` 写告警（含缺口与原因）
@@ -71,3 +78,5 @@ worker 自己不得直接分析 class（避免遗漏与上下文污染）。
   }
 }
 ```
+
+回报后立即结束当前页任务，并丢弃上一页的类列表、源码片段、计数与错误上下文。若 teammate 被复用，只能基于新的页任务重新开始。

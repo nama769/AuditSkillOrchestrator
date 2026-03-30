@@ -1,32 +1,73 @@
 ---
 name: java-stage1-auth-marker
-description: Java 阶段1 鉴权相关标记器（独立版）。输入一个类的“局部代码上下文”（通常是若干方法源码片段），仅基于该文本识别与鉴权/访问控制相关的 Filter/Interceptor/Aspect/注解/配置类与关键 API，并输出 auth_marker 记录数组，供 worker 写入 auth_markers.jsonl。本阶段只标记相关性，不深入分析鉴权正确性或绕过。
+description: Java 阶段1鉴权维度提取器。作为页级 auth subagent 使用：输入一页 `class_names[]` 后，对每个类先看 methods/fields，再按需用 get_method_by_name 拉少量方法源码，识别与鉴权或访问控制相关的 Filter、Interceptor、Aspect、注解、配置类和关键 API，并按类返回 auth_marker 记录。本阶段只标记相关性，不分析正确性或绕过。
 ---
 
-# Stage1 Auth Marker（单类）
+# Stage1 Auth Marker（页级维度）
 
-你只分析“一个类”的局部代码上下文，输出与鉴权/权限控制相关的标记记录。
+你是 auth 维度 subagent。你接收一页 `class_names[]`，必须对每个类完成“members 粗筛 → 按需拉方法源码 → 提取 auth_marker 记录”的流程，并按类返回结果。
 
 ## 输入
 
-- `class_name`
 - `page_no`
-- `code_context`（若干方法源码/片段拼接而成，可能不包含完整类声明/类注解）
-- 可选：`source_file`
+- `class_names`：数组；包含本页全部待审计类
+
+你必须自行调用：
+- `get_methods_of_class(class_name)`
+- `get_fields_of_class(class_name)`
+- `get_method_by_name(class_name, method_name)`（仅在当前类可能与 auth 相关时按需调用）
 
 ## 输出（固定为一个 JSON 对象）
 
-- `records`：数组（每个元素是 auth_markers.jsonl 的一行结构）
-- `errors`：字符串数组
+```json
+{
+  "dimension": "auth",
+  "class_results": [
+    {
+      "class_name": "com.demo.A",
+      "code_context_level": "members_only",
+      "records": [],
+      "errors": []
+    }
+  ],
+  "errors": []
+}
+```
 
 输出强约束：
+- `dimension` 必须固定为 `auth`
+- `class_results` 必须覆盖输入里的全部 `class_names`
+- 每个 `class_results[]` 元素都必须包含：`class_name`、`code_context_level`、`records`、`errors`
+- `code_context_level` 只能是 `members_only|method_source`
 - 每条记录必须包含：`record_type="auth_marker"`、`marker_type`、`framework`、`class_name`、`evidence.reason`、`confidence`、`page_no`
 - `marker_type` 必须是 schema 枚举之一：`filter`/`interceptor`/`aspect`/`annotation`/`config`/`middleware`/`session`/`token`/`rbac`/`acl`/`other`
 - 禁止输出自定义大写类型（例如 `AUTH_TOKEN`）；不确定时用 `token` 或 `other`，并在 reason 说明
 
-## 标记规则（仅基于 code_context）
+## 执行流程
 
-你只做“相关性标记”，不做漏洞识别与正确性判断。命中任意模式即可输出记录；不确定时降低 `confidence`，并把不确定性写进 `evidence.reason`。
+对 `class_names[]` 中的每个 `class_name` 依次执行：
+
+1) 先调用 `get_methods_of_class(class_name)` 与 `get_fields_of_class(class_name)`
+2) 仅基于类名、方法名、参数类型、字段名/字段类型判断是否值得继续拉源码
+3) 若明显不相关：
+   - 返回该类 `code_context_level="members_only"`
+   - `records=[]`
+4) 若可能相关：
+   - 只对少量高价值方法调用 `get_method_by_name(class_name, method_name)`
+   - 优先选择与当前维度强相关的方法名和框架入口，如 `doFilter/preHandle/intercept/auth/login/logout/permit/deny`
+   - 每个类总计最多拉取 12 个方法源码
+   - 将拉到的方法源码拼成该类自己的 `code_context`
+   - 基于这个 `code_context` 识别 auth_marker 记录
+   - 返回该类 `code_context_level="method_source"`
+
+粗筛提示：
+- 类名倾向：`*Filter*`、`*Interceptor*`、`*Security*`、`*Auth*`、`*Jwt*`、`*Token*`、`*Realm*`
+- 方法名倾向：`doFilter`、`doFilterInternal`、`preHandle`、`intercept`、`auth`、`login`、`logout`
+- 字段/参数类型倾向：`FilterChain`、`HttpServletRequest`、`Authentication`、`SecurityContextHolder`、`Subject`
+
+## 标记规则（基于按需拉取的 code_context）
+
+你只做“相关性标记”，不做漏洞识别与正确性判断。命中任意模式即可输出记录；不确定时降低 `confidence`，并把不确定性写进 `evidence.reason`。只能依据当前类已拉取的 `code_context` 生成记录。
 
 ### 1) Filter 组件（marker_type=filter）
 

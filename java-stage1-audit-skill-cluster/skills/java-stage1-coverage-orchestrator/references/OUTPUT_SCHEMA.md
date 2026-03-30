@@ -2,27 +2,27 @@
 title: Stage1 JSONL 输出协议
 ---
 
-# 阶段1 JSONL 输出协议（固定格式）
+# 阶段1 记录结构参考
 
-说明：当前阶段1推荐使用 Postgres（javaAudit）作为唯一状态后端，避免 JSONL 作为状态机导致的并发与一致性问题。
-- 本文件保留为“记录结构定义”（sinks/routes/auth_markers 的字段与枚举依然适用）
-- 状态/覆盖率/告警/任务领取请以 `POSTGRES_MCP_PLAYBOOK.md` 与数据库表为准
+说明：Stage1 以 Postgres（javaAudit）为唯一状态后端，状态、覆盖率、告警与任务领取都以数据库和 `POSTGRES_MCP_PLAYBOOK.md` 为准。
+- 本文件只保留导出格式参考
+- sinks/routes/auth_markers 的字段与枚举定义仍适用
 
-本协议用于阶段1“100% 覆盖的全量扫描”：按类/方法粒度输出 sink、路由、鉴权相关标记，并提供可验证的覆盖率与进度文件。
+本参考用于阶段1全量扫描的可选导出：按类/方法粒度输出 sink、路由与鉴权相关标记。
 
-## 输出目录结构（必须）
+## 输出目录结构（可选）
 
 `{output_path}/stage1/`
 - `meta.json`：本轮扫描元信息
-- `progress.jsonl`：主编排器维护的页级进度
-- `warnings.jsonl`：遗漏/异常/重试等告警
+- `progress.jsonl`：按 DB 聚合结果导出的页级进度
+- `warnings.jsonl`：从 DB 导出的告警副本
 - `pages/`
   - `page-{page_no}/`
-    - `class_list.jsonl`：该页 class 清单（逐行打完成标记）
+    - `class_list.jsonl`：该页类列表导出
     - `sinks.jsonl`：该页所有 sink 记录
     - `routes.jsonl`：该页所有路由记录
     - `auth_markers.jsonl`：该页所有鉴权相关标记记录
-    - `worker_summary.json`：该页统计（类数、记录数、错误数）
+    - `worker_summary.json`：该页摘要
 - `merged/`（可选）
   - `sinks.jsonl` / `routes.jsonl` / `auth_markers.jsonl`
   - `stage1_summary.json`
@@ -45,7 +45,7 @@ title: Stage1 JSONL 输出协议
 - `assigned_at`：ISO8601
 - `status`：`pending` | `in_progress` | `done` | `needs_retry`
 - `expected_class_count`：整数
-- `done_class_count`：整数（必须由 `class_list.jsonl` 的 done 统计得出）
+- `done_class_count`：整数
 - `new_sink_count` / `new_route_count` / `new_auth_marker_count`：整数（可选）
 - `error_count`：整数（可选）
 - `evidence`：对象（输出文件路径）
@@ -60,11 +60,9 @@ title: Stage1 JSONL 输出协议
 - `message`：字符串
 - `details`：对象（可选）
 
-## class_list.jsonl（类清单与完成标记，JSONL）
+## class_list.jsonl（类列表导出，JSONL）
 
-两类记录：
-
-### 1) 初始清单行（必须先写）
+推荐使用单条 `class_item` 记录表示该页类列表：
 
 字段：
 - `record_type`：固定 `class_item`
@@ -73,19 +71,6 @@ title: Stage1 JSONL 输出协议
 - `class_name`：字符串
 - `origin`：`source` | `jar` | `class` | `unknown`
 - `done`：布尔（初始为 false）
-
-### 2) 追加更新行（推荐）
-
-字段：
-- `record_type`：固定 `class_update`
-- `page_no`：整数
-- `class_name`：字符串
-- `done`：布尔（完成时 true）
-- `done_at`：ISO8601 或 null
-- `sink_count` / `route_count` / `auth_marker_count`：整数
-- `errors`：字符串数组
-
-统计规则：对初始清单的每个 `class_name`，以最后一条 `class_update` 为准。
 
 ## sinks.jsonl（方法级敏感点，JSONL）
 

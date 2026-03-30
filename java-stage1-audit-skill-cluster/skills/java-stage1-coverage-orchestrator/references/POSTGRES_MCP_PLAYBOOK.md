@@ -60,8 +60,9 @@ title: Postgres MCP 操作手册（Stage1）
  - 写 findings：`SELECT stage1_insert_sink_json('{run_id}','{worker_id}',{page_no}, '{...}'::jsonb);`（route/auth_marker 同理）
 
 worker 建议写入策略（减少推测）：
-- 不再把一个类拆成 3 次分析调用；改为 worker 为每个 class 创建一个 subagent 执行 `/java-stage1-class-auditor`，一次性返回三类记录
-- worker 只负责：schema 校验 → 调用 `stage1_insert_*_json` 落库 → 调用 `stage1_mark_class_done(run_id, class_name, sink_count, route_count, auth_marker_count, code_context_level, errors_jsonb)` + `stage1_refresh_page_counts`
+- worker 先写入整页类列表，再启动 3 个维度 subagent：`/java-stage1-route-extractor`、`/java-stage1-auth-marker`、`/java-stage1-sink-extractor`
+- 每个维度 subagent 都对整页类列表先看 methods/fields，再按需 `get_method_by_name` 拉少量方法源码，并按类返回 `records/errors/code_context_level`
+- worker 负责：按类汇总三路结果 → schema 校验 → 调用 `stage1_insert_*_json` 落库 → 调用 `stage1_mark_class_done(run_id, class_name, sink_count, route_count, auth_marker_count, code_context_level, errors_jsonb)` + `stage1_refresh_page_counts`
 
 ## 1) 创建一次 stage1 run（主编排器）
 
@@ -110,7 +111,7 @@ RETURNING p.page_no;
 
 返回为空表示没有可领取的页（可能已全部 done，或仍有 in_progress 的 worker 未完成）。
 
-## 3) worker 写入 class 清单（替代 class_list.jsonl）
+## 3) worker 写入类列表
 
 worker 在拿到 `page_no` 后，先调用 `get_all_classes(offset=page_no*page_size,count=page_size)` 得到 items（class_name 列表）。
 
@@ -192,7 +193,7 @@ INSERT INTO stage1_auth_markers(
 
 ## 5) worker 标记 class 完成 + 更新页计数
 
-每处理完一个 class 后更新：
+每处理完一个 class 的三维汇总结果后更新：
 ```sql
 UPDATE stage1_classes
 SET status='done',

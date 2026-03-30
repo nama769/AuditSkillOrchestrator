@@ -2,7 +2,7 @@
 title: Stage1 状态后端（数据库方案）
 ---
 
-# 阶段1 状态后端：数据库方案（替代 class_list.jsonl）
+# 阶段1 状态后端：数据库方案
 
 ## 结论
 
@@ -53,7 +53,7 @@ Redis 也可用，但需要提供等价的原子操作（例如 Lua / MULTI/EXEC
 
 ### classes
 
-worker 的逐类完成标记（替代 class_list.jsonl + class_update）。
+worker 的逐类完成标记表。
 
 - `run_id` TEXT
 - `page_no` INTEGER
@@ -69,7 +69,7 @@ worker 的逐类完成标记（替代 class_list.jsonl + class_update）。
 
 ### findings（可选但推荐）
 
-把 sinks/routes/auth_markers 也存进 DB（后续去重/聚合更容易），同时仍可落盘 JSONL 作为可读报告。
+把 sinks/routes/auth_markers 也存进 DB，后续去重、聚合和查询都更直接；如有需要，可再导出 JSONL 供人工查看。
 
 - `run_id` TEXT
 - `page_no` INTEGER
@@ -115,5 +115,4 @@ worker 的逐类完成标记（替代 class_list.jsonl + class_update）。
 - JSONL 作为可读审计产物（便于人工查看与后续工具消费）
 
 如果只想要 DB：
-- 仍建议至少落盘 warnings 与 summary，便于排障
-
+- 可按需导出 warnings 或 summary 便于排障

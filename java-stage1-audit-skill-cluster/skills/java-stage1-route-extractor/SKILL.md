@@ -1,31 +1,72 @@
 ---
 name: java-stage1-route-extractor
-description: Java 阶段1 路由提取器（独立版）。输入一个类的“局部代码上下文”（通常是若干方法源码片段），仅基于该文本识别 Controller/Servlet/JAX-RS 等端点定义，输出 route 记录数组，供 worker 写入 routes.jsonl。不生成 Burp 模板，不做参数深挖，禁止跨文件搜索。
+description: Java 阶段1路由维度提取器。作为页级 route subagent 使用：输入一页 `class_names[]` 后，对每个类先看 methods/fields，再按需用 get_method_by_name 拉少量方法源码，识别 Controller、Servlet、JAX-RS 等端点定义，并按类返回 route 记录。禁止跨文件搜索，不生成 Burp 模板。
 ---
 
-# Stage1 Route Extractor（单类）
+# Stage1 Route Extractor（页级维度）
 
-你只分析“一个类”的局部代码上下文并输出能从该上下文中确定的路由映射记录。
+你是 route 维度 subagent。你接收一页 `class_names[]`，必须对每个类完成“members 粗筛 → 按需拉方法源码 → 提取 route 记录”的流程，并按类返回结果。
 
 ## 输入
 
-- `class_name`
 - `page_no`
-- `code_context`（若干方法源码/片段拼接而成，可能不包含完整类声明/类注解）
-- 可选：`source_file`
+- `class_names`：数组；包含本页全部待审计类
+
+你必须自行调用：
+- `get_methods_of_class(class_name)`
+- `get_fields_of_class(class_name)`
+- `get_method_by_name(class_name, method_name)`（仅在当前类可能与 route 相关时按需调用）
 
 ## 输出（固定为一个 JSON 对象）
 
-- `records`：数组（每个元素是 routes.jsonl 的一行结构）
-- `errors`：字符串数组
+```json
+{
+  "dimension": "route",
+  "class_results": [
+    {
+      "class_name": "com.demo.A",
+      "code_context_level": "members_only",
+      "records": [],
+      "errors": []
+    }
+  ],
+  "errors": []
+}
+```
 
 输出强约束：
-- 每条记录必须包含：`record_type="route"`、`framework`、`http_method`、`path`、`class_name`、`evidence.reason`、`page_no`
+- `dimension` 必须固定为 `route`
+- `class_results` 必须覆盖输入里的全部 `class_names`
+- 每个 `class_results[]` 元素都必须包含：`class_name`、`code_context_level`、`records`、`errors`
+- `code_context_level` 只能是 `members_only|method_source`
+- `records` 中的每条 route 记录必须包含：`record_type="route"`、`framework`、`http_method`、`path`、`class_name`、`evidence.reason`、`page_no`
 - 禁止输出自定义字段（例如 `line_number`）；行号字段只能用 `line_start/line_end`（无法确定可为 null）
 
-## 识别要点（仅基于 code_context）
+## 执行流程
 
-只做“识别与提取”，不做项目级搜索与跨文件推断。你必须把路由当作“可追溯的证据记录”：只能依据当前 `code_context` 中出现的注解/常量/分发逻辑生成记录。若缺少类级信息（例如类注解/父类/接口），不要臆测，按 `(unknown)` 输出并在 evidence 说明缺失原因。
+对 `class_names[]` 中的每个 `class_name` 依次执行：
+
+1) 先调用 `get_methods_of_class(class_name)` 与 `get_fields_of_class(class_name)`
+2) 仅基于类名、方法名、参数类型、字段名/字段类型判断是否值得继续拉源码
+3) 若明显不相关：
+   - 返回该类 `code_context_level="members_only"`
+   - `records=[]`
+4) 若可能相关：
+   - 只对少量高价值方法调用 `get_method_by_name(class_name, method_name)`
+   - 优先选择与当前维度强相关的方法名和入口方法，如 `doGet/doPost/service/handle/request/dispatch`
+   - 每个类总计最多拉取 12 个方法源码
+   - 将拉到的方法源码拼成该类自己的 `code_context`
+   - 基于这个 `code_context` 识别 route 记录
+   - 返回该类 `code_context_level="method_source"`
+
+粗筛提示：
+- 类名倾向：`*Controller*`、`*Resource*`、`*Servlet*`、`*Action*`、`*Endpoint*`
+- 方法名倾向：`doGet`、`doPost`、`service`、`handle`、`request`、`dispatch`
+- 参数类型倾向：`HttpServletRequest`、`HttpServletResponse`
+
+## 识别要点（基于按需拉取的 code_context）
+
+只做“识别与提取”，不做项目级搜索与跨文件推断。你必须把路由当作“可追溯的证据记录”：只能依据当前类已拉取的 `code_context` 中出现的注解、常量和分发逻辑生成记录。若缺少类级信息（例如类注解/父类/接口），不要臆测，按 `(unknown)` 输出并在 evidence 说明缺失原因。
 
 ### 1) Spring MVC / Spring Boot（framework=spring_mvc）
 

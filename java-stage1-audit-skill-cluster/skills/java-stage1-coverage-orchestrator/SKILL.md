@@ -1,6 +1,6 @@
 ---
 name: java-stage1-coverage-orchestrator
-description: Java 阶段1「100% 覆盖」审计编排器（Team/Teammate 模式，Postgres 状态后端）。必须先读 references/TEAMMATE_EXECUTION.md，然后用 TeamCreate + teammate + SendMessage 的非阻塞方式调度 /java-stage1-coverage-worker；禁止用 subagent 同步执行 worker。所有状态与记录写入 Postgres（javaAudit），覆盖率用 SQL 统计。用户询问进度/继续审计/按页分发/pg 时必须使用。
+description: Java 阶段1全覆盖审计编排器。先读 references/TEAMMATE_EXECUTION.md，再用 TeamCreate + teammate + SendMessage 非阻塞调度 /java-stage1-coverage-worker，禁止同步 subagent 跑 worker。worker 会为每页启动 route/auth/sink 3 个维度 subagent；所有状态与覆盖率以 Postgres（javaAudit）SQL 为准。用户提到启动、继续、调度或查看 Stage1 审计进度时必须使用。
 ---
 
 # Java 阶段1：100% 覆盖审计（主编排器）
@@ -70,9 +70,8 @@ description: Java 阶段1「100% 覆盖」审计编排器（Team/Teammate 模式
 - 禁止删除 `~/.claude/teams` 或 `~/.claude/tasks` 来试图重建 team
 - 若需要终止当前 team，应使用 Claude Code 的 Team/Task 生命周期接口正常结束（例如 TeamDelete），再创建新 team
 
-3) 数据库是唯一状态真相
-- 禁止用文件（progress.jsonl/class_list.jsonl/warnings.jsonl）作为任务状态、完成统计或覆盖率依据
-- 覆盖率、未完成页、重试页必须通过 SQL 查询结果判定（见 `references/POSTGRES_MCP_PLAYBOOK.md`）
+3) 数据库是唯一状态来源
+- 覆盖率、未完成页、重试页只以 SQL 查询结果判定（见 `references/POSTGRES_MCP_PLAYBOOK.md`）
 
 ### 1) 初始化数据库（建表 + 创建 run + 初始化 pages）
 
@@ -101,8 +100,9 @@ worker 必须使用技能：
 - `source_path`、`output_path`、`page_no`、`page_size`
 - 严格遵守 `references/WORKER_PROTOCOL.md` 的“只看让他看的内容，不做全局搜索”
 - 必须写入 DB：`run_id`、`worker_id`（主编排器分配给每个 worker 的唯一标识）
-- 明确要求 worker：对每个 class 创建 subagent 完成三维审计（见 worker skill）
-- 明确要求 worker：不得批量发射 subagent，subagent 并发上限=2（见 worker 协议）
+- 明确要求 worker：只启动 3 个维度 subagent，分别负责 route/auth/sink，对整页类列表做分维度审计（见 worker skill）
+- 明确要求 worker：不得回退到 `/java-stage1-class-auditor` 的逐类三维聚合路径
+- 明确要求 worker：页任务结束后丢弃上一页上下文，再等待下一次任务
 
 ### 3) 接收 worker 回报并更新 DB 状态
 

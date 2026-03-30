@@ -19,10 +19,10 @@ java-stage1-audit-skill-cluster/
 └── skills/
     ├── java-stage1-coverage-orchestrator/   # 主编排器（Agent Teams）
     ├── java-stage1-coverage-worker/         # 按页 worker（由主编排器调度）
-    ├── java-stage1-class-auditor/           # 单类三维审计（由 worker 创建 subagent 调用）
-    ├── java-stage1-sink-extractor/          # 单类 sink 提取器（由 worker 调用）
-    ├── java-stage1-route-extractor/         # 单类路由提取器（由 worker 调用）
-    ├── java-stage1-auth-marker/             # 单类鉴权相关标记器（由 worker 调用）
+    ├── java-stage1-class-auditor/           # 备用的单类三维聚合器（非 worker 默认路径）
+    ├── java-stage1-sink-extractor/          # sink 维度提取器（由 worker 的 sink subagent 调用）
+    ├── java-stage1-route-extractor/         # 路由维度提取器（由 worker 的 route subagent 调用）
+    ├── java-stage1-auth-marker/             # 鉴权维度提取器（由 worker 的 auth subagent 调用）
     └── java-stage1-status-checker/          # 主 agent 状态探针（查询进度/卡点/告警）
 ```
 

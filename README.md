@@ -32,14 +32,11 @@ Stage1 的“覆盖”以 **数据库计数**为准：
 
 ### 流程概览
 
-Stage1 由“主编排器 + 多 worker + 单类 subagent”组成：
+Stage1 由“主编排器 + 多 worker + 页内三维 subagent”组成：
 
 - 主编排器按页动态调度 worker（Team/Teammate 模式，避免阻塞主会话）
-- worker 负责本页 class 清单入库、并逐类创建 subagent 做三维审计，然后把结果写入 Postgres
-- subagent（class-auditor）对单个 class 做三维审计输出：
-  - sinks（敏感 API / sink 点）
-  - routes（路由/入口映射）
-  - auth\_markers（鉴权相关线索标记）
+- worker 负责本页类列表入库，并启动 3 个维度 subagent，分别处理 sinks、routes、auth\_markers，再汇总写入 Postgres
+- 每个维度 subagent 只加载一个对应 skill，并对整页类列表按“先看 methods/fields，再按需拉方法源码”的方式审计
 
 为了降低成本，Stage1 默认采用“先粗筛、再按需拉源码”的方式：
 
@@ -114,4 +111,3 @@ Stage1 由“主编排器 + 多 worker + 单类 subagent”组成：
 - <https://github.com/crystaldba/postgres-mcp>
 - <https://github.com/RuoJi6/java-audit-skills>
 - <https://github.com/H4cking2theGate/AuditSkills>
-

@@ -21,6 +21,9 @@ title: Team/Teammate 调度规范（避免阻塞）
 3) 主编排器不得等待“teammate 完成”作为唯一进度来源  
 主编排器应以 DB 为真相：定期查询 `stage1_pages/stage1_classes` 的进度，并随时响应用户“进度/卡点/告警”询问（可调用 `java-stage1-status-checker`）。
 
+4) worker 完成一页后必须重置页级上下文  
+同一 teammate 若被复用处理下一页，只能保留公共协议，不得延续上一页的类名、源码片段、统计和判断。
+
 ## 参考执行模板（以 Claude Code 的 Team 能力为准）
 
 不同环境的具体按钮/命令名可能略有差异，但步骤语义必须一致：
@@ -36,8 +39,8 @@ title: Team/Teammate 调度规范（避免阻塞）
 - SendMessage 给 teammate
 - 消息内容必须包含：`run_id/worker_id/page_no/page_size/source_path/output_path`
 - teammate 接到消息后执行 `/java-stage1-coverage-worker` 并只处理该页
+- worker 页内必须启动 route/auth/sink 3 个维度 subagent；页任务结束后立刻丢弃页级上下文
 
 4) 主编排器轮询 DB
 - 用 `stage1_run_progress(run_id)` 观察覆盖率
 - 用 `SELECT ... FROM stage1_pages WHERE status<>'done'` 找卡点/重试页
-
